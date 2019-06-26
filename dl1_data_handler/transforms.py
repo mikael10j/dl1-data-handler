@@ -128,7 +128,7 @@ class DataForGammaLearn(Transform):
 
     def __init__(self):
         super().__init__()
-        self.mc_infos = ['mc_energy', 'core_x', 'core_y', 'alt', 'az', 'shower_primary_id', 'x_max', 'h_first_int']
+        self.mc_infos = ['mc_energy', 'core_x', 'core_y', 'alt', 'az', 'particle_id', 'x_max', 'h_first_int']
         self.array_infos = ['x', 'y', 'z']
 
     def describe(self, description):
