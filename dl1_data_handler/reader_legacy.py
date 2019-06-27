@@ -133,7 +133,10 @@ class DL1DataReader:
             # event by a telescope type and an optional list of telescope ids.
             selected_telescopes = {}
             for tel_type in selected_tel_types:
-                available_tel_ids = telescopes[tel_type]
+                try:
+                    available_tel_ids = telescopes[tel_type]
+                except Exception as e:
+                    print('file: {}, {}'.format(filename, e))
                 # Keep only the selected tel ids for the tel type
                 if tel_type in selected_telescope_ids:
                     # Check all requested telescopes are available to select
