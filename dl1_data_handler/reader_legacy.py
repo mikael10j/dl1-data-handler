@@ -84,110 +84,107 @@ class DL1DataReader:
 
         # Loop over the files to assemble the selected event identifiers
         for filename, f in self.files.items():
-            example_identifiers = []
-
-            # Get dict of all the tel_types in the file mapped to their tel_ids
-            telescopes = {}
             try:
+                example_identifiers = []
+
+                # Get dict of all the tel_types in the file mapped to their tel_ids
+                telescopes = {}
                 for row in f.root.Array_Info:
                     tel_type = row['tel_type'].decode()
                     if tel_type not in telescopes:
                         telescopes[tel_type] = []
                     telescopes[tel_type].append(row['tel_id'])
+
+                # Enforce an automatic minimal telescope selection cut:
+                # there must be at least one triggered telescope of a
+                # selected type in the event
+                # Users can include stricter cuts in the selection string
+                if self.mode in ['mono', 'stereo']:
+                    if selected_telescope_type is None:
+                        # Default: use the first tel type in the file
+                        default = f.root.Array_Info[0]['tel_type'].decode()
+                        selected_telescope_type = default
+                    self.tel_type = selected_telescope_type
+                    selected_tel_types = [selected_telescope_type]
+                elif self.mode == 'multi-stereo':
+                    if selected_telescope_type is None:
+                        # Default: use all tel types
+                        selected_telescope_type = list(telescopes)
+                    self.tel_type = None
+                    selected_tel_types = selected_telescope_type
+                # Multiplicity condition not implemented (pytables won't take a numpy
+                # function as a condition
+
+                #multiplicity_conditions = ['np.count_nonzero(' + tel_type + '_indices) > 0'
+                #                           for tel_type in selected_tel_types]
+                #tel_cut_string = '(' + ' | '.join(multiplicity_conditions) + ')'
+
+                # Combine minimal telescope cut with explicit selection cuts
+                if selection_string:
+                    cut_condition = selection_string
+    #                cut_condition = selection_string + ' & ' + tel_cut_string
+                else:
+                #    cut_condition = tel_cut_string
+                    cut_condition = 'mc_energy > 0'
+
+                # Select which telescopes from the full dataset to include in each
+                # event by a telescope type and an optional list of telescope ids.
+                selected_telescopes = {}
+                for tel_type in selected_tel_types:
+                    available_tel_ids = telescopes[tel_type]
+
+                    # Keep only the selected tel ids for the tel type
+                    if tel_type in selected_telescope_ids:
+                        # Check all requested telescopes are available to select
+                        requested_tel_ids = selected_telescope_ids[tel_type]
+                        invalid_tel_ids = (set(requested_tel_ids)
+                                           - set(available_tel_ids))
+                        if invalid_tel_ids:
+                            raise ValueError("Tel ids {} are not a valid selection"
+                                             "for tel type '{}'".format(
+                                                 invalid_tel_ids, tel_type))
+                        selected_telescopes[tel_type] = requested_tel_ids
+                    else:
+                        selected_telescopes[tel_type] = available_tel_ids
+
+                selected_nrows = set([row.nrow for row
+                                  in f.root.Event_Info.where(cut_condition)])
+                selected_nrows &= self._select_event(f, event_selection)
+                selected_nrows = list(selected_nrows)
+
+                # Make list of identifiers of all examples passing event selection
+                if self.mode in ['stereo', 'multi-stereo']:
+                    example_identifiers = [(filename, nrow) for nrow
+                                           in selected_nrows]
+                elif self.mode == 'mono':
+                    example_identifiers = []
+                    field = '{}_indices'.format(self.tel_type)
+                    selected_indices = f.root.Event_Info.read_coordinates(selected_nrows, field=field)
+                    for tel_id in selected_telescopes[self.tel_type]:
+                        img_ids = set(selected_indices[:, telescopes[self.tel_type].index(tel_id)])
+                        img_ids.remove(0)
+                        img_ids = list(img_ids)
+                        # TODO handle all selected channels
+                        mask = self._select_image(f.root[self.tel_type][img_ids]['image_charge'], image_selection)
+                        img_ids = np.array(img_ids)[mask]
+                        for index in img_ids:
+                                example_identifiers.append((filename, index, tel_id))
+
+                # Confirm that the files are consistent and merge them
+                if not self.telescopes:
+                    self.telescopes = telescopes
+                if self.telescopes != telescopes:
+                    raise ValueError("Inconsistent telescope definition in "
+                                     "{}".format(filename))
+                self.selected_telescopes = selected_telescopes
+
+                if self.example_identifiers is None:
+                    self.example_identifiers = example_identifiers
+                else:
+                    self.example_identifiers.extend(example_identifiers)
+
             except Exception as e:
                 print('file: {}, {}'.format(filename, e))
-                raise e
-
-            # Enforce an automatic minimal telescope selection cut:
-            # there must be at least one triggered telescope of a
-            # selected type in the event
-            # Users can include stricter cuts in the selection string
-            if self.mode in ['mono', 'stereo']:
-                if selected_telescope_type is None:
-                    # Default: use the first tel type in the file
-                    default = f.root.Array_Info[0]['tel_type'].decode()
-                    selected_telescope_type = default
-                self.tel_type = selected_telescope_type
-                selected_tel_types = [selected_telescope_type]
-            elif self.mode == 'multi-stereo':
-                if selected_telescope_type is None:
-                    # Default: use all tel types
-                    selected_telescope_type = list(telescopes)
-                self.tel_type = None
-                selected_tel_types = selected_telescope_type
-            # Multiplicity condition not implemented (pytables won't take a numpy
-            # function as a condition
-
-            #multiplicity_conditions = ['np.count_nonzero(' + tel_type + '_indices) > 0'
-            #                           for tel_type in selected_tel_types]
-            #tel_cut_string = '(' + ' | '.join(multiplicity_conditions) + ')'
-
-            # Combine minimal telescope cut with explicit selection cuts
-            if selection_string:
-                cut_condition = selection_string
-#                cut_condition = selection_string + ' & ' + tel_cut_string
-            else:
-            #    cut_condition = tel_cut_string
-                cut_condition = 'mc_energy > 0'
-
-            # Select which telescopes from the full dataset to include in each
-            # event by a telescope type and an optional list of telescope ids.
-            selected_telescopes = {}
-            for tel_type in selected_tel_types:
-                try:
-                    available_tel_ids = telescopes[tel_type]
-                except Exception as e:
-                    print('file: {}, {}'.format(filename, e))
-                    raise e
-                # Keep only the selected tel ids for the tel type
-                if tel_type in selected_telescope_ids:
-                    # Check all requested telescopes are available to select
-                    requested_tel_ids = selected_telescope_ids[tel_type]
-                    invalid_tel_ids = (set(requested_tel_ids)
-                                       - set(available_tel_ids))
-                    if invalid_tel_ids:
-                        raise ValueError("Tel ids {} are not a valid selection"
-                                         "for tel type '{}'".format(
-                                             invalid_tel_ids, tel_type))
-                    selected_telescopes[tel_type] = requested_tel_ids
-                else:
-                    selected_telescopes[tel_type] = available_tel_ids
-
-            selected_nrows = set([row.nrow for row
-                              in f.root.Event_Info.where(cut_condition)])
-            selected_nrows &= self._select_event(f, event_selection)
-            selected_nrows = list(selected_nrows)
-
-            # Make list of identifiers of all examples passing event selection
-            if self.mode in ['stereo', 'multi-stereo']:
-                example_identifiers = [(filename, nrow) for nrow
-                                       in selected_nrows]
-            elif self.mode == 'mono':
-                example_identifiers = []
-                field = '{}_indices'.format(self.tel_type)
-                selected_indices = f.root.Event_Info.read_coordinates(selected_nrows, field=field)
-                for tel_id in selected_telescopes[self.tel_type]:
-                    img_ids = set(selected_indices[:, telescopes[self.tel_type].index(tel_id)])
-                    img_ids.remove(0)
-                    img_ids = list(img_ids)
-                    # TODO handle all selected channels
-                    mask = self._select_image(f.root[self.tel_type][img_ids]['image_charge'], image_selection)
-                    img_ids = np.array(img_ids)[mask]
-                    for index in img_ids:
-                            example_identifiers.append((filename, index, tel_id))
-
-            # Confirm that the files are consistent and merge them
-            if not self.telescopes:
-                self.telescopes = telescopes
-            if self.telescopes != telescopes:
-                raise ValueError("Inconsistent telescope definition in "
-                                 "{}".format(filename))
-            self.selected_telescopes = selected_telescopes
-
-            if self.example_identifiers is None:
-                self.example_identifiers = example_identifiers
-            else:
-                self.example_identifiers.extend(example_identifiers)
 
         # Shuffle the examples
         if shuffle:
