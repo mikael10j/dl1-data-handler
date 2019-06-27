@@ -88,11 +88,14 @@ class DL1DataReader:
 
             # Get dict of all the tel_types in the file mapped to their tel_ids
             telescopes = {}
-            for row in f.root.Array_Info:
-                tel_type = row['tel_type'].decode()
-                if tel_type not in telescopes:
-                    telescopes[tel_type] = []
-                telescopes[tel_type].append(row['tel_id'])
+            try:
+                for row in f.root.Array_Info:
+                    tel_type = row['tel_type'].decode()
+                    if tel_type not in telescopes:
+                        telescopes[tel_type] = []
+                    telescopes[tel_type].append(row['tel_id'])
+            except Exception as e:
+                print('file: {}, {}'.format(filename, e))
 
             # Enforce an automatic minimal telescope selection cut:
             # there must be at least one triggered telescope of a
