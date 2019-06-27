@@ -96,6 +96,7 @@ class DL1DataReader:
                     telescopes[tel_type].append(row['tel_id'])
             except Exception as e:
                 print('file: {}, {}'.format(filename, e))
+                raise e
 
             # Enforce an automatic minimal telescope selection cut:
             # there must be at least one triggered telescope of a
@@ -137,6 +138,7 @@ class DL1DataReader:
                     available_tel_ids = telescopes[tel_type]
                 except Exception as e:
                     print('file: {}, {}'.format(filename, e))
+                    raise e
                 # Keep only the selected tel ids for the tel type
                 if tel_type in selected_telescope_ids:
                     # Check all requested telescopes are available to select
